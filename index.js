@@ -17,6 +17,7 @@ const getMessage = key => {
 
 let Sock; // Global socket
 
+// ✅ sendMessage with optional timeout (for stability)
 const sendMessage = async (jid, content, ...args) => {
     try {
         const sent = await Sock.sendMessage(jid, content, ...args);
@@ -35,7 +36,7 @@ const initWhatsappBot = async () => {
         getMessage
     });
 
-    // QR Code handler (new method)
+    // Connection & QR handler
     Sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
@@ -59,7 +60,7 @@ const initWhatsappBot = async () => {
 
     Sock.ev.on('creds.update', saveCreds);
 
-    // Optional: Handle incoming messages
+    // Optional: Log incoming messages
     Sock.ev.on('messages.upsert', async ({ messages }) => {
         messages.forEach(msg => {
             if (!msg.message) return;
@@ -69,10 +70,10 @@ const initWhatsappBot = async () => {
     });
 };
 
-// Start WhatsApp socket
+// Start WhatsApp connection
 initWhatsappBot();
 
-// REST API endpoint
+// ✅ REST endpoint to send message
 app.post('/send_message', async (req, res) => {
     const { phone_number, content } = req.body;
 
@@ -80,10 +81,14 @@ app.post('/send_message', async (req, res) => {
         return res.status(400).json({ error: 'phone_number and content are required' });
     }
 
+    if (!Sock?.user) {
+        return res.status(503).json({ error: 'WhatsApp is not connected yet' });
+    }
+
     const jid = phone_number.replace(/\D/g, '') + '@s.whatsapp.net';
 
     try {
-        await sendMessage(jid, { text: content });
+        await sendMessage(jid, { text: content }, { timeoutMs: 30000 }); // 30s timeout
         return res.json({
             success: true,
             message: 'Message sent successfully',
@@ -98,7 +103,15 @@ app.post('/send_message', async (req, res) => {
     }
 });
 
-// Start Express server
+// ✅ Health-check route
+app.get('/', (req, res) => {
+    res.json({
+        status: 'running',
+        whatsapp_connected: !!Sock?.user || false
+    });
+});
+
+// ✅ Start server on 0.0.0.0 so it's externally reachable
 const PORT = 5000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 API server running at http://localhost:${PORT}`);
